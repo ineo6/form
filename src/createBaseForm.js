@@ -4,11 +4,14 @@ import {
   getValueFromEvent, getErrorStrs,
   hasRules, getParams,
   isEmptyObject, flattenArray,
+  getNameKeyObj, getNameKeyStr,
+  flatFieldNames, clearVirtualField,
 } from './utils';
 import AsyncValidator from 'async-validator';
 
 const defaultValidateTrigger = 'onChange';
 const defaultTrigger = defaultValidateTrigger;
+const atom = {};
 
 function createBaseForm(option = {}, mixins = []) {
   const {
@@ -28,6 +31,7 @@ function createBaseForm(option = {}, mixins = []) {
           fields = mapPropsToFields(this.props);
         }
         this.fields = fields || {};
+        this.instances = {};
         this.fieldsMeta = {};
         this.cachedBind = {};
         return {
@@ -37,25 +41,12 @@ function createBaseForm(option = {}, mixins = []) {
 
       componentWillReceiveProps(nextProps) {
         if (mapPropsToFields) {
-          const fields = mapPropsToFields(nextProps);
-          if (fields) {
-            const instanceFields = this.fields = {
-              ...this.fields,
-            };
-            for (const fieldName in fields) {
-              if (fields.hasOwnProperty(fieldName)) {
-                instanceFields[fieldName] = {
-                  ...fields[fieldName],
-                  // keep instance
-                  instance: instanceFields[fieldName] && instanceFields[fieldName].instance,
-                };
-              }
-            }
-          }
+          this.fields = mapPropsToFields(nextProps);
         }
       },
 
-      onChange(name, action, ...args) {
+      onChange(name_, action, ...args) {
+        let name = name_;
         const fieldMeta = this.getFieldMeta(name);
         const { validate } = fieldMeta;
         if (fieldMeta[action]) {
@@ -64,17 +55,24 @@ function createBaseForm(option = {}, mixins = []) {
         const value = fieldMeta.getValueFromEvent ?
           fieldMeta.getValueFromEvent(...args) :
           getValueFromEvent(...args);
-        const field = this.getField(name, true);
+        let fieldContent;
+        const nameKeyObj = getNameKeyObj(name);
+        if (this.getFieldMeta(nameKeyObj.name).exclusive) {
+          name = nameKeyObj.name;
+        }
+        const field = this.getField(name);
+        fieldContent = {
+          ...field,
+          value,
+          dirty: hasRules(validate),
+        };
         this.setFields({
-          [name]: {
-            ...field,
-            value,
-            dirty: hasRules(validate),
-          },
+          [name]: fieldContent,
         });
       },
 
-      onChangeValidate(name, action, ...args) {
+      onChangeValidate(name_, action, ...args) {
+        let name = name_;
         const fieldMeta = this.getFieldMeta(name);
         if (fieldMeta[action]) {
           fieldMeta[action](...args);
@@ -82,7 +80,11 @@ function createBaseForm(option = {}, mixins = []) {
         const value = fieldMeta.getValueFromEvent ?
           fieldMeta.getValueFromEvent(...args) :
           getValueFromEvent(...args);
-        const field = this.getField(name, true);
+        const nameKeyObj = getNameKeyObj(name);
+        if (this.getFieldMeta(nameKeyObj.name).exclusive) {
+          name = nameKeyObj.name;
+        }
+        const field = this.getField(name);
         field.value = value;
         field.dirty = true;
         this.validateFieldsInternal([field], {
@@ -105,22 +107,12 @@ function createBaseForm(option = {}, mixins = []) {
         return this.fieldsMeta[name];
       },
 
-      getField(name, copy) {
-        const ret = this.fields[name];
-        if (ret) {
-          ret.name = name;
-        }
-        if (copy) {
-          if (ret) {
-            return {
-              ...ret,
-            };
-          }
-          return {
-            name,
-          };
-        }
-        return ret;
+      getField(name) {
+        const { fields } = this;
+        return {
+          ...fields[name],
+          name,
+        };
       },
 
       getFieldProps(name, fieldOption = {}) {
@@ -133,17 +125,38 @@ function createBaseForm(option = {}, mixins = []) {
           trigger = defaultTrigger,
           valuePropName = 'value',
           getValueProps,
+          exclusive,
           validateTrigger = defaultValidateTrigger,
           validate = [],
         } = fieldOption;
+        const nameKeyObj = getNameKeyObj(name);
+        const leadingName = nameKeyObj.name;
+        const key = nameKeyObj.key;
+        const { fieldsMeta } = this;
+        let fieldMeta;
+        let leadingFieldMeta = fieldsMeta[leadingName];
 
-        const fieldMeta = this.fieldsMeta[name] || {};
+        if (key) {
+          leadingFieldMeta = fieldsMeta[leadingName] = fieldsMeta[leadingName] || {};
+          leadingFieldMeta.virtual = !exclusive;
+          // exclusive allow getFieldProps('x', {initialValue})
+          // non-exclusive does not allow getFieldProps('x', {initialValue})
+          leadingFieldMeta.hidden = !exclusive;
+          leadingFieldMeta.exclusive = exclusive;
+          fieldMeta = fieldsMeta[name] = fieldsMeta[name] || {};
+        } else {
+          fieldMeta = fieldsMeta[name] = fieldsMeta[name] || {};
+        }
 
         if ('initialValue' in fieldOption) {
           fieldMeta.initialValue = fieldOption.initialValue;
         }
 
         let inputProps = {};
+
+        if (key) {
+          inputProps.key = key;
+        }
 
         if (fieldNameProp) {
           inputProps[fieldNameProp] = name;
@@ -184,10 +197,13 @@ function createBaseForm(option = {}, mixins = []) {
         if (trigger && validateRules.every(checkRule)) {
           inputProps[trigger] = this.getCacheBind(name, trigger, this.onChange);
         }
-        const field = this.getField(name);
-        let fieldValue = fieldMeta.initialValue;
+        const field = exclusive ? this.getField(leadingName) : this.getField(name);
+        let fieldValue = atom;
         if (field && 'value' in field) {
           fieldValue = field.value;
+        }
+        if (fieldValue === atom) {
+          fieldValue = exclusive ? fieldsMeta[leadingName].initialValue : fieldMeta.initialValue;
         }
         if (getValueProps) {
           inputProps = {
@@ -206,7 +222,7 @@ function createBaseForm(option = {}, mixins = []) {
           validate: validateRules,
         };
 
-        this.fieldsMeta[name] = meta;
+        fieldsMeta[name] = meta;
 
         if (fieldMetaProp) {
           inputProps[fieldMetaProp] = meta;
@@ -232,7 +248,7 @@ function createBaseForm(option = {}, mixins = []) {
       },
 
       getFieldsValue(names) {
-        const fields = names || this.getValidFieldsName();
+        const fields = names || flatFieldNames(this.getValidFieldsName());
         const allValues = {};
         fields.forEach((f) => {
           allValues[f] = this.getFieldValue(f);
@@ -246,35 +262,54 @@ function createBaseForm(option = {}, mixins = []) {
       },
 
       getFieldInstance(name) {
-        const { fields } = this;
-        return fields[name] && fields[name].instance;
+        return this.instances[name];
       },
 
-      getValueFromFields(name, fields) {
-        const { fieldsMeta } = this;
+      getValueFromFieldsInternal(name, fields) {
         const field = fields[name];
         if (field && 'value' in field) {
           return field.value;
         }
-        const fieldMeta = fieldsMeta[name];
+        const fieldMeta = this.fieldsMeta[name];
         return fieldMeta && fieldMeta.initialValue;
       },
 
+      getValueFromFields(name, fields) {
+        const { fieldsMeta } = this;
+        if (fieldsMeta[name] && fieldsMeta[name].virtual) {
+          const ret = {};
+          for (const fieldKey in fieldsMeta) {
+            if (fieldsMeta.hasOwnProperty(fieldKey)) {
+              const nameKeyObj = getNameKeyObj(fieldKey);
+              if (nameKeyObj.name === name && nameKeyObj.key) {
+                ret[nameKeyObj.key] =
+                  this.getValueFromFieldsInternal(fieldKey, fields);
+              }
+            }
+          }
+          return ret;
+        }
+        return this.getValueFromFieldsInternal(name, fields);
+      },
       getRules(fieldMeta, action) {
         const actionRules = fieldMeta.validate.filter((item) => {
           return !action || item.trigger.indexOf(action) >= 0;
         }).map((item) => item.rules);
         return flattenArray(actionRules);
       },
-      setFields(fields) {
-        const originalFields = this.fields;
+      setFields(fields_) {
+        const fieldsMeta = this.fieldsMeta;
+        const fields = fields_;
         const nowFields = {
-          ...originalFields,
+          ...this.fields,
           ...fields,
         };
-        const fieldsMeta = this.fieldsMeta;
         const nowValues = {};
         Object.keys(fieldsMeta).forEach((f) => {
+          const { name, key } = getNameKeyObj(f);
+          if (key && fieldsMeta[name].exclusive) {
+            return;
+          }
           nowValues[f] = this.getValueFromFields(f, nowFields);
         });
         const changedFieldsName = Object.keys(fields);
@@ -283,15 +318,12 @@ function createBaseForm(option = {}, mixins = []) {
           const fieldMeta = fieldsMeta[f];
           if (fieldMeta && fieldMeta.normalize) {
             const nowValue = fieldMeta.normalize(value,
-              this.getValueFromFields(f, originalFields), nowValues);
+              this.getValueFromFields(f, this.fields), nowValues);
             if (nowValue !== value) {
               nowFields[f] = {
                 ...nowFields[f],
                 value: nowValue,
               };
-              if (changedFieldsName.indexOf(f) === -1) {
-                changedFieldsName.push(f);
-              }
             }
           }
         });
@@ -299,7 +331,7 @@ function createBaseForm(option = {}, mixins = []) {
         if (onFieldsChange) {
           const changedFields = {};
           changedFieldsName.forEach((f) => {
-            changedFields[f] = nowFields[f];
+            changedFields[f] = this.getField(f);
           });
           onFieldsChange(this.props, changedFields);
         }
@@ -307,16 +339,27 @@ function createBaseForm(option = {}, mixins = []) {
       },
 
       setFieldsValue(fieldsValue) {
-        const fields = {};
+        const newFields = {};
+        const { fieldsMeta, fields } = this;
         for (const name in fieldsValue) {
           if (fieldsValue.hasOwnProperty(name)) {
-            fields[name] = {
-              name,
-              value: fieldsValue[name],
-            };
+            const value = fieldsValue[name];
+            if (fieldsMeta[name] && fieldsMeta[name].virtual) {
+              clearVirtualField(name, fields, fieldsMeta);
+              for (const key in value) {
+                if (value.hasOwnProperty(key)) {
+                  newFields[getNameKeyStr(name, key)] = value[key];
+                }
+              }
+            } else {
+              newFields[name] = {
+                name,
+                value,
+              };
+            }
           }
         }
-        this.setFields(fields);
+        this.setFields(newFields);
       },
 
       setFieldsInitialValue(initialValues) {
@@ -337,6 +380,8 @@ function createBaseForm(option = {}, mixins = []) {
           // after destroy, delete data
           delete this.fieldsMeta[name];
           delete this.fields[name];
+          delete this.instances[name];
+          delete this.cachedBind[name];
           return;
         }
         const fieldMeta = this.getFieldMeta(name);
@@ -346,8 +391,7 @@ function createBaseForm(option = {}, mixins = []) {
           }
           fieldMeta.ref(component);
         }
-        this.fields[name] = this.fields[name] || {};
-        this.fields[name].instance = component;
+        this.instances[name] = component;
       },
 
       validateFieldsInternal(fields, {
@@ -365,7 +409,6 @@ function createBaseForm(option = {}, mixins = []) {
             if (field.errors) {
               alreadyErrors[name] = {
                 errors: field.errors,
-                instance: field.instance,
               };
             }
             return;
@@ -382,14 +425,13 @@ function createBaseForm(option = {}, mixins = []) {
           allFields[name] = newField;
         });
         this.setFields(allFields);
-        const nowFields = this.fields;
         // in case normalize
         Object.keys(allValues).forEach((f) => {
-          allValues[f] = nowFields[f].value;
+          allValues[f] = this.getFieldValue(f);
         });
         if (callback && isEmptyObject(allFields)) {
           callback(isEmptyObject(alreadyErrors) ? null : alreadyErrors,
-            this.getFieldsValue(fieldNames));
+            this.getFieldsValue(flatFieldNames(fieldNames)));
           return;
         }
         const validator = new AsyncValidator(allRules);
@@ -416,12 +458,11 @@ function createBaseForm(option = {}, mixins = []) {
           const nowAllFields = {};
           Object.keys(allRules).forEach((name) => {
             const fieldErrors = errorsGroup[name];
-            const nowField = this.getField(name, true);
+            const nowField = this.getField(name);
             // avoid concurrency problems
             if (nowField.value !== allValues[name]) {
               expired.push({
                 name,
-                instance: nowField.instance,
               });
             } else {
               nowField.errors = fieldErrors && fieldErrors.errors;
@@ -430,27 +471,23 @@ function createBaseForm(option = {}, mixins = []) {
               nowField.dirty = false;
               nowAllFields[name] = nowField;
             }
-            if (fieldErrors) {
-              fieldErrors.instance = nowField.instance;
-            }
           });
           this.setFields(nowAllFields);
           if (callback) {
             if (expired.length) {
-              expired.forEach(({ name, instance }) => {
+              expired.forEach(({ name }) => {
                 const fieldErrors = [{
                   message: `${name} need to revalidate`,
                   field: name,
                 }];
                 errorsGroup[name] = {
                   expired: true,
-                  instance,
                   errors: fieldErrors,
                 };
               });
             }
             callback(isEmptyObject(errorsGroup) ? null : errorsGroup,
-              this.getFieldsValue(fieldNames));
+              this.getFieldsValue(flatFieldNames(fieldNames)));
           }
         });
       },
@@ -463,7 +500,7 @@ function createBaseForm(option = {}, mixins = []) {
           if (!hasRules(fieldMeta.validate)) {
             return null;
           }
-          const field = this.getField(name, true);
+          const field = this.getField(name);
           field.value = this.getFieldValue(name);
           return field;
         }).filter((f) => {
@@ -471,7 +508,7 @@ function createBaseForm(option = {}, mixins = []) {
         });
         if (!fields.length) {
           if (callback) {
-            callback(null, this.getFieldsValue(fieldNames));
+            callback(null, this.getFieldsValue(flatFieldNames(fieldNames)));
           }
           return;
         }
@@ -493,7 +530,9 @@ function createBaseForm(option = {}, mixins = []) {
 
       isFieldsValidating(ns) {
         const names = ns || this.getValidFieldsName();
-        return names.some(this.isFieldValidating);
+        return names.some((n) => {
+          return this.isFieldValidating(n);
+        });
       },
 
       isSubmitting() {
@@ -521,9 +560,7 @@ function createBaseForm(option = {}, mixins = []) {
           const field = fields[name];
           if (field && 'value' in field) {
             changed = true;
-            newFields[name] = {
-              instance: field.instance,
-            };
+            newFields[name] = {};
           }
         });
         if (changed) {

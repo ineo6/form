@@ -4,7 +4,7 @@ import createDOMForm from 'rc-form/src/createDOMForm';
 import React, { Component, PropTypes } from 'react';
 import ReactDOM from 'react-dom';
 import Modal from 'antd/lib/modal';
-import 'antd/lib/index.css';
+import 'antd/dist/antd.css';
 import { regionStyle, errorStyle } from './styles';
 
 class Form extends Component {
@@ -65,10 +65,10 @@ class Form extends Component {
                 }],
               })}
             />
-            <p style={errorStyle}>
+            <div style={errorStyle}>
               {getFieldError('required') ? getFieldError('required').join(',') :
                 <b style={{ visibility: 'hidden' }}>1</b>}
-            </p>
+            </div>
             <div style={{ marginTop: 300 }}>
               <button>submit</button>
             </div>

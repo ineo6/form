@@ -3,7 +3,7 @@
 import { createForm } from 'rc-form';
 import React, { Component, PropTypes } from 'react';
 import ReactDOM from 'react-dom';
-import 'antd/lib/index.css';
+import 'antd/dist/antd.css';
 import { regionStyle, errorStyle } from './styles';
 
 const CustomInput = React.createClass({
@@ -32,7 +32,7 @@ const CustomInput = React.createClass({
     const { getFieldProps, getFieldError } = this.props.form;
     const errors = getFieldError('upper');
     return (<div style={ regionStyle }>
-      <p>upper normalize</p>
+      <div>upper normalize</div>
       <div>
         <input {...getFieldProps('upper', {
           normalize: this.toUpper,
@@ -42,9 +42,9 @@ const CustomInput = React.createClass({
         })}
         />
       </div>
-      <p style={errorStyle}>
+      <div style={errorStyle}>
         {(errors) ? errors.join(',') : null}
-      </p>
+      </div>
     </div>);
   },
 });

@@ -6,7 +6,7 @@ import { createRootContainer, createContainer } from 'react-data-binding';
 import ReactDOM from 'react-dom';
 import { regionStyle } from './styles';
 import Switch from 'antd/lib/switch';
-import 'antd/lib/index.css';
+import 'antd/dist/antd.css';
 
 const createFormContainer = createContainer((state) => {
   return {
@@ -24,13 +24,13 @@ let TopForm = React.createClass({
     const { form, on } = this.props;
     const { getFieldProps } = form;
     return (<div style={ regionStyle }>
-      <p>has email? </p>
-      <p>
+      <div>has email? </div>
+      <div>
         <Switch {...getFieldProps('on', {
           initialValue: on,
           valuePropName: 'checked',
         })}
-        /></p>
+        /></div>
     </div>);
   },
 });
@@ -49,15 +49,15 @@ let BottomForm = React.createClass({
       display: on ? 'block' : 'none',
     };
     return (<div style={ style }>
-      <p>email: </p>
-      <p>
+      <div>email: </div>
+      <div>
         <input {...form.getFieldProps('email', {
           rules: [{
             type: 'email',
           }],
           hidden: !on,
         })}
-        /></p>
+        /></div>
     </div>);
   },
 });

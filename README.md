@@ -39,7 +39,7 @@ online example: http://react-component.github.io/form/examples/
 
 * support reactjs and even react-native
 
-## install
+## Install
 
 [![rc-form](https://nodei.co/npm/rc-form.png)](https://npmjs.org/package/rc-form)
 
@@ -70,6 +70,10 @@ class Form extends React.Component {
   }
 }
 ```
+
+## Note
+
+Do not use stateless function component inside Form component: https://github.com/facebook/react/pull/6534
 
 ## createForm(formOption): Function
 
@@ -104,6 +108,10 @@ After set, this will create a binding with this input.
 #### name: String
 
 This input's unique name.
+
+#### option.exclusive: boolean
+
+whether set value exclusively. used with radio.
 
 #### option.valuePropName: String
 
@@ -205,7 +213,7 @@ Set fields by kv object. each field can contain errors and value member.
 Validate and get fields value by fieldNames.
 
 options is the same as validate method of [async-validator](https://github.com/yiminghe/async-validator).
-add a new force member.
+And add `force` and `scroll`. `scroll` is the same as [dom-scroll-into-view's function parameter `config`](https://github.com/yiminghe/dom-scroll-into-view#function-parameter).
 
 #### options.force: Boolean
 
