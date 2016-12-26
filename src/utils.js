@@ -6,13 +6,10 @@ function getDisplayName(WrappedComponent) {
 
 export function argumentContainer(Container, WrappedComponent, option) {
   /* eslint no-param-reassign:0 */
-  if(option && option.getDisplayName) {
-
-      Container.displayName = option.getDisplayName(WrappedComponent)
-      
+  if (option && option.getDisplayName) {
+    Container.displayName = option.getDisplayName(WrappedComponent);
   } else {
-
-      Container.displayName = `Form(${getDisplayName(WrappedComponent)})`;
+    Container.displayName = `Form(${getDisplayName(WrappedComponent)})`;
   }
   Container.WrappedComponent = WrappedComponent;
   return hoistStatics(Container, WrappedComponent);
