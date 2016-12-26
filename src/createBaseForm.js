@@ -583,7 +583,7 @@ function createBaseForm(option = {}, mixins = []) {
       },
     });
 
-    return argumentContainer(Form, WrappedComponent);
+    return argumentContainer(Form, WrappedComponent, option);
   }
 
   return decorate;
