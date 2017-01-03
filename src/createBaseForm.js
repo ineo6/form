@@ -4,13 +4,18 @@ import {
   getValueFromEvent, getErrorStrs,
   hasRules, getParams,
   isEmptyObject, flattenArray,
-  getNameKeyObj, getNameKeyStr,
+  getNameIfNested,
   flatFieldNames, clearVirtualField,
+  getVirtualPaths,
 } from './utils';
 import AsyncValidator from 'async-validator';
+import warning from 'warning';
+import get from 'lodash.get';
+import has from 'lodash.has';
+import set from 'lodash.set';
 
-const defaultValidateTrigger = 'onChange';
-const defaultTrigger = defaultValidateTrigger;
+const DEFAULT_VALIDATE_TRIGGER = 'onChange';
+const DEFAULT_TRIGGER = DEFAULT_VALIDATE_TRIGGER;
 const atom = {};
 
 function createBaseForm(option = {}, mixins = []) {
@@ -51,12 +56,14 @@ function createBaseForm(option = {}, mixins = []) {
         const { validate } = fieldMeta;
         if (fieldMeta[action]) {
           fieldMeta[action](...args);
+        } else if (fieldMeta.originalProps && fieldMeta.originalProps[action]) {
+          fieldMeta.originalProps[action](...args);
         }
         const value = fieldMeta.getValueFromEvent ?
           fieldMeta.getValueFromEvent(...args) :
           getValueFromEvent(...args);
         let fieldContent;
-        const nameKeyObj = getNameKeyObj(name);
+        const nameKeyObj = getNameIfNested(name);
         if (this.getFieldMeta(nameKeyObj.name).exclusive) {
           name = nameKeyObj.name;
         }
@@ -76,11 +83,13 @@ function createBaseForm(option = {}, mixins = []) {
         const fieldMeta = this.getFieldMeta(name);
         if (fieldMeta[action]) {
           fieldMeta[action](...args);
+        } else if (fieldMeta.originalProps && fieldMeta.originalProps[action]) {
+          fieldMeta.originalProps[action](...args);
         }
         const value = fieldMeta.getValueFromEvent ?
           fieldMeta.getValueFromEvent(...args) :
           getValueFromEvent(...args);
-        const nameKeyObj = getNameKeyObj(name);
+        const nameKeyObj = getNameIfNested(name);
         if (this.getFieldMeta(nameKeyObj.name).exclusive) {
           name = nameKeyObj.name;
         }
@@ -115,28 +124,67 @@ function createBaseForm(option = {}, mixins = []) {
         };
       },
 
+      getFieldDecorator(name, fieldOption) {
+        const props = this.getFieldProps(name, fieldOption);
+        return (fieldElem) => {
+          const fieldMeta = this.getFieldMeta(name);
+          const originalProps = fieldElem.props;
+          if (process.env.NODE_ENV !== 'production') {
+            const valuePropName = fieldMeta.valuePropName;
+            warning(
+              !(valuePropName in originalProps),
+              `\`getFieldDecorator\` will override \`${valuePropName}\`, ` +
+              `so please don't set \`${valuePropName}\` directly ` +
+              `and use \`setFieldsValue\` to set it.`
+            );
+            const defaultValuePropName =
+              `default${valuePropName[0].toUpperCase()}${valuePropName.slice(1)}`;
+            warning(
+              !(defaultValuePropName in originalProps),
+              `\`${defaultValuePropName}\` is invalid ` +
+              `for \`getFieldDecorator\` will set \`${valuePropName}\`,` +
+              ` please use \`option.initialValue\` instead.`
+            );
+          }
+          fieldMeta.originalProps = originalProps;
+          fieldMeta.ref = fieldElem.ref;
+          return React.cloneElement(fieldElem, {
+            ...props,
+            ...this.getFieldValuePropValue(fieldMeta),
+          });
+        };
+      },
+
       getFieldProps(name, fieldOption = {}) {
         if (!name) {
-          throw new Error('must call getFieldProps with valid name string!');
+          throw new Error('Must call `getFieldProps` with valid name string!');
         }
+
+        fieldOption.valuePropName = fieldOption.valuePropName || 'value';
+        fieldOption.validate = fieldOption.validate || [];
 
         const {
           rules,
-          trigger = defaultTrigger,
-          valuePropName = 'value',
-          getValueProps,
+          trigger = DEFAULT_TRIGGER,
           exclusive,
-          validateTrigger = defaultValidateTrigger,
-          validate = [],
+          validateTrigger = DEFAULT_VALIDATE_TRIGGER,
+          validate,
         } = fieldOption;
-        const nameKeyObj = getNameKeyObj(name);
-        const leadingName = nameKeyObj.name;
-        const key = nameKeyObj.key;
+
+        fieldOption.trigger = trigger;
+        fieldOption.validateTrigger = validateTrigger;
+
+        const nameIfNested = getNameIfNested(name);
+        const leadingName = nameIfNested.name;
+
+        fieldOption.leadingName = leadingName;
+        fieldOption.name = name;
+
         const { fieldsMeta } = this;
         let fieldMeta;
         let leadingFieldMeta = fieldsMeta[leadingName];
 
-        if (key) {
+        if (nameIfNested.isNested) {
           leadingFieldMeta = fieldsMeta[leadingName] = fieldsMeta[leadingName] || {};
           leadingFieldMeta.virtual = !exclusive;
           // exclusive allow getFieldProps('x', {initialValue})
@@ -153,10 +201,6 @@ function createBaseForm(option = {}, mixins = []) {
         }
 
         let inputProps = {};
-
-        if (key) {
-          inputProps.key = key;
-        }
 
         if (fieldNameProp) {
           inputProps[fieldNameProp] = name;
@@ -197,22 +241,11 @@ function createBaseForm(option = {}, mixins = []) {
         if (trigger && validateRules.every(checkRule)) {
           inputProps[trigger] = this.getCacheBind(name, trigger, this.onChange);
         }
-        const field = exclusive ? this.getField(leadingName) : this.getField(name);
-        let fieldValue = atom;
-        if (field && 'value' in field) {
-          fieldValue = field.value;
-        }
-        if (fieldValue === atom) {
-          fieldValue = exclusive ? fieldsMeta[leadingName].initialValue : fieldMeta.initialValue;
-        }
-        if (getValueProps) {
-          inputProps = {
-            ...inputProps,
-            ...getValueProps(fieldValue),
-          };
-        } else {
-          inputProps[valuePropName] = fieldValue;
-        }
+
+        inputProps = {
+          ...inputProps,
+          ... this.getFieldValuePropValue(fieldOption),
+        };
 
         inputProps.ref = this.getCacheBind(name, `${name}__ref`, this.saveRef);
 
@@ -231,6 +264,23 @@ function createBaseForm(option = {}, mixins = []) {
         return inputProps;
       },
 
+      getFieldValuePropValue(fieldMeta) {
+        const { exclusive, leadingName, name, getValueProps, valuePropName } = fieldMeta;
+        const { fieldsMeta } = this;
+        const field = exclusive ? this.getField(leadingName) : this.getField(name);
+        let fieldValue = atom;
+        if (field && 'value' in field) {
+          fieldValue = field.value;
+        }
+        if (fieldValue === atom) {
+          fieldValue = exclusive ? fieldsMeta[leadingName].initialValue : fieldMeta.initialValue;
+        }
+        if (getValueProps) {
+          return getValueProps(fieldValue);
+        }
+        return { [valuePropName]: fieldValue };
+      },
+
       getFieldMember(name, member) {
         const field = this.getField(name);
         return field && field[member];
@@ -242,16 +292,16 @@ function createBaseForm(option = {}, mixins = []) {
 
       getValidFieldsName() {
         const fieldsMeta = this.fieldsMeta;
-        return fieldsMeta ? Object.keys(fieldsMeta).filter((name) => {
-          return !fieldsMeta[name].hidden;
-        }) : [];
+        return fieldsMeta ?
+          Object.keys(fieldsMeta).filter(name => !fieldsMeta[name].hidden) :
+          [];
       },
 
       getFieldsValue(names) {
         const fields = names || flatFieldNames(this.getValidFieldsName());
         const allValues = {};
         fields.forEach((f) => {
-          allValues[f] = this.getFieldValue(f);
+          set(allValues, f, this.getFieldValue(f));
         });
         return allValues;
       },
@@ -280,14 +330,13 @@ function createBaseForm(option = {}, mixins = []) {
           const ret = {};
           for (const fieldKey in fieldsMeta) {
             if (fieldsMeta.hasOwnProperty(fieldKey)) {
-              const nameKeyObj = getNameKeyObj(fieldKey);
-              if (nameKeyObj.name === name && nameKeyObj.key) {
-                ret[nameKeyObj.key] =
-                  this.getValueFromFieldsInternal(fieldKey, fields);
+              const nameIfNested = getNameIfNested(fieldKey);
+              if (nameIfNested.name === name && nameIfNested.isNested) {
+                set(ret, fieldKey, this.getValueFromFieldsInternal(fieldKey, fields));
               }
             }
           }
-          return ret;
+          return ret[name];
         }
         return this.getValueFromFieldsInternal(name, fields);
       },
@@ -306,8 +355,8 @@ function createBaseForm(option = {}, mixins = []) {
         };
         const nowValues = {};
         Object.keys(fieldsMeta).forEach((f) => {
-          const { name, key } = getNameKeyObj(f);
-          if (key && fieldsMeta[name].exclusive) {
+          const { name, isNested } = getNameIfNested(f);
+          if (isNested && fieldsMeta[name].exclusive) {
             return;
           }
           nowValues[f] = this.getValueFromFields(f, nowFields);
@@ -341,17 +390,22 @@ function createBaseForm(option = {}, mixins = []) {
       setFieldsValue(fieldsValue) {
         const newFields = {};
         const { fieldsMeta, fields } = this;
+        const virtualPaths = getVirtualPaths(fieldsMeta);
         for (const name in fieldsValue) {
           if (fieldsValue.hasOwnProperty(name)) {
             const value = fieldsValue[name];
             if (fieldsMeta[name] && fieldsMeta[name].virtual) {
               clearVirtualField(name, fields, fieldsMeta);
-              for (const key in value) {
-                if (value.hasOwnProperty(key)) {
-                  newFields[getNameKeyStr(name, key)] = value[key];
+              for (let i = 0, len = virtualPaths[name].length; i < len; i++) {
+                const path = virtualPaths[name][i];
+                if (has(fieldsValue, path)) {
+                  newFields[path] = {
+                    name: path,
+                    value: get(fieldsValue, path),
+                  };
                 }
               }
-            } else {
+            } else if (fieldsMeta[name]) {
               newFields[name] = {
                 name,
                 value,
@@ -364,13 +418,25 @@ function createBaseForm(option = {}, mixins = []) {
 
       setFieldsInitialValue(initialValues) {
         const fieldsMeta = this.fieldsMeta;
+        const virtualPaths = getVirtualPaths(fieldsMeta);
         for (const name in initialValues) {
           if (initialValues.hasOwnProperty(name)) {
-            const fieldMeta = fieldsMeta[name];
-            fieldsMeta[name] = {
-              ...fieldMeta,
-              initialValue: initialValues[name],
-            };
+            if (fieldsMeta[name] && fieldsMeta[name].virtual) {
+              for (let i = 0, len = virtualPaths[name].length; i < len; i++) {
+                const path = virtualPaths[name][i];
+                if (has(initialValues, path)) {
+                  fieldsMeta[path] = {
+                    ...fieldsMeta[path],
+                    initialValue: get(initialValues, path),
+                  };
+                }
+              }
+            } else if (fieldsMeta[name]) {
+              fieldsMeta[name] = {
+                ...fieldsMeta[name],
+                initialValue: initialValues[name],
+              };
+            }
           }
         }
       },
@@ -385,11 +451,14 @@ function createBaseForm(option = {}, mixins = []) {
           return;
         }
         const fieldMeta = this.getFieldMeta(name);
-        if (fieldMeta && fieldMeta.ref) {
-          if (typeof fieldMeta.ref === 'string') {
-            throw new Error(`can not set ref string for ${name}`);
+        if (fieldMeta) {
+          const ref = fieldMeta.ref;
+          if (ref) {
+            if (typeof ref === 'string') {
+              throw new Error(`can not set ref string for ${name}`);
+            }
+            ref(component);
           }
-          fieldMeta.ref(component);
         }
         this.instances[name] = component;
       },
@@ -407,9 +476,7 @@ function createBaseForm(option = {}, mixins = []) {
           const name = field.name;
           if (options.force !== true && field.dirty === false) {
             if (field.errors) {
-              alreadyErrors[name] = {
-                errors: field.errors,
-              };
+              set(alreadyErrors, name, { errors: field.errors });
             }
             return;
           }
@@ -445,19 +512,17 @@ function createBaseForm(option = {}, mixins = []) {
           if (errors && errors.length) {
             errors.forEach((e) => {
               const fieldName = e.field;
-              if (!errorsGroup[fieldName]) {
-                errorsGroup[fieldName] = {
-                  errors: [],
-                };
+              if (!has(errorsGroup, fieldName)) {
+                set(errorsGroup, fieldName, { errors: [] });
               }
-              const fieldErrors = errorsGroup[fieldName].errors;
+              const fieldErrors = get(errorsGroup, fieldName.concat('.errors'));
               fieldErrors.push(e);
             });
           }
           const expired = [];
           const nowAllFields = {};
           Object.keys(allRules).forEach((name) => {
-            const fieldErrors = errorsGroup[name];
+            const fieldErrors = get(errorsGroup, name);
             const nowField = this.getField(name);
             // avoid concurrency problems
             if (nowField.value !== allValues[name]) {
@@ -480,12 +545,13 @@ function createBaseForm(option = {}, mixins = []) {
                   message: `${name} need to revalidate`,
                   field: name,
                 }];
-                errorsGroup[name] = {
+                set(errorsGroup, name, {
                   expired: true,
                   errors: fieldErrors,
-                };
+                });
               });
             }
+
             callback(isEmptyObject(errorsGroup) ? null : errorsGroup,
               this.getFieldsValue(flatFieldNames(fieldNames)));
           }
