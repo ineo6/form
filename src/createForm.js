@@ -18,6 +18,7 @@ export const mixin = {
       submit: this.submit,
       validateFields: this.validateFields,
       resetFields: this.resetFields,
+      clearUp: this.clearUp,
     };
   },
 };

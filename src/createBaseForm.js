@@ -291,11 +291,8 @@ function createBaseForm(option = {}, mixins = []) {
       },
 
       getValidFieldsName() {
+        this.clearUp();
         const fieldsMeta = this.fieldsMeta;
-        var delNames = fieldsMeta ? Object.keys(fieldsMeta).filter(name => {
-          return fieldsMeta[name].deleted && fieldsMeta[name].deleted === true;
-        }) : [];
-        this.kickoutFields(delNames);
         return fieldsMeta ?
           Object.keys(fieldsMeta).filter(name => !fieldsMeta[name].hidden) :
           [];
@@ -469,16 +466,20 @@ function createBaseForm(option = {}, mixins = []) {
         this.instances[name] = component;
       },
 
-      kickoutFields(names = []) {
+      clearUp() {
 
-         names.forEach( name => {
+          const fieldsMeta = this.fieldsMeta;
+          var delNames = fieldsMeta ? Object.keys(fieldsMeta).filter(name => {
+            return fieldsMeta[name].deleted && fieldsMeta[name].deleted === true;
+          }) : [];
+
+         delNames.forEach( name => {
              delete this.fieldsMeta[name];
              delete this.fields[name];
              delete this.instances[name];
              delete this.cachedBind[name];
 
          })
-
      },
 
       validateFieldsInternal(fields, {
@@ -652,6 +653,9 @@ function createBaseForm(option = {}, mixins = []) {
         }
       },
 
+      componentDidUpdate(prevProps, prevState) {
+          console.log('here is componentDidUpdate')
+      },
       render() {
         const formProps = {
           [formPropName]: this.getForm(),
@@ -663,7 +667,8 @@ function createBaseForm(option = {}, mixins = []) {
           ...formProps,
           ...this.props,
         });
-        return <WrappedComponent {...props}/>;
+        const result = <WrappedComponent {...props}/>
+        return result;
       },
     });
 
