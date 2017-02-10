@@ -528,14 +528,17 @@ function createBaseForm(option = {}, mixins = []) {
           const errorsGroup = {
             ...alreadyErrors,
           };
+          const showErrorsGroup = {}
           if (errors && errors.length) {
             errors.forEach((e) => {
               const fieldName = e.field;
               if (!has(errorsGroup, fieldName)) {
                 set(errorsGroup, fieldName, { errors: [] });
+                showErrorsGroup[fieldName] = { errors: [] }
               }
               const fieldErrors = get(errorsGroup, fieldName.concat('.errors'));
               fieldErrors.push(e);
+              showErrorsGroup[fieldName].errors.push(e);
             });
           }
           const expired = [];
@@ -568,10 +571,14 @@ function createBaseForm(option = {}, mixins = []) {
                   expired: true,
                   errors: fieldErrors,
                 });
+                showErrorsGroup[name] = {
+                    expired: true,
+                    errors: fieldErrors,
+                };
               });
             }
 
-            callback(isEmptyObject(errorsGroup) ? null : errorsGroup,
+            callback(isEmptyObject(showErrorsGroup) ? null : showErrorsGroup,
               this.getFieldsValue(flatFieldNames(fieldNames)));
           }
         });
