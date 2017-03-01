@@ -63,7 +63,7 @@
     "lint"
   ],
   "dependencies": {
-    "async-validator": "git+https://github.com/ineo6/async-validator.git",
+    "async-validator": "git+https://github.com/setState/async-validator.git",
     "babel-runtime": "6.x",
     "dom-scroll-into-view": "1.x",
     "hoist-non-react-statics": "1.x",
