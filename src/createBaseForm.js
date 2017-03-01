@@ -291,7 +291,6 @@ function createBaseForm(option = {}, mixins = []) {
       },
 
       getValidFieldsName() {
-        this.clearUp();
         const fieldsMeta = this.fieldsMeta;
         return fieldsMeta ?
           Object.keys(fieldsMeta).filter(name => !fieldsMeta[name].hidden) :
@@ -445,15 +444,13 @@ function createBaseForm(option = {}, mixins = []) {
       saveRef(name, _, component) {
         if (!component) {
           // after destroy, delete data
-        //   delete this.fieldsMeta[name];
-        //   delete this.fields[name];
-        //   delete this.instances[name];
-        //   delete this.cachedBind[name];
-          this.fieldsMeta[name].deleted = true
+          delete this.fieldsMeta[name];
+          delete this.fields[name];
+          delete this.instances[name];
+          delete this.cachedBind[name];
           return;
         }
         const fieldMeta = this.getFieldMeta(name);
-        fieldMeta.deleted = false
         if (fieldMeta) {
           const ref = fieldMeta.ref;
           if (ref) {
@@ -465,22 +462,6 @@ function createBaseForm(option = {}, mixins = []) {
         }
         this.instances[name] = component;
       },
-
-      clearUp() {
-
-          const fieldsMeta = this.fieldsMeta;
-          var delNames = fieldsMeta ? Object.keys(fieldsMeta).filter(name => {
-            return fieldsMeta[name].deleted && fieldsMeta[name].deleted === true;
-          }) : [];
-
-         delNames.forEach( name => {
-             delete this.fieldsMeta[name];
-             delete this.fields[name];
-             delete this.instances[name];
-             delete this.cachedBind[name];
-
-         })
-     },
 
       validateFieldsInternal(fields, {
         fieldNames,
@@ -528,13 +509,13 @@ function createBaseForm(option = {}, mixins = []) {
           const errorsGroup = {
             ...alreadyErrors,
           };
-          const showErrorsGroup = {}
+          const showErrorsGroup = {};
           if (errors && errors.length) {
             errors.forEach((e) => {
               const fieldName = e.field;
               if (!has(errorsGroup, fieldName)) {
                 set(errorsGroup, fieldName, { errors: [] });
-                showErrorsGroup[fieldName] = { errors: [] }
+                showErrorsGroup[fieldName] = { errors: [] };
               }
               const fieldErrors = get(errorsGroup, fieldName.concat('.errors'));
               fieldErrors.push(e);
@@ -572,8 +553,8 @@ function createBaseForm(option = {}, mixins = []) {
                   errors: fieldErrors,
                 });
                 showErrorsGroup[name] = {
-                    expired: true,
-                    errors: fieldErrors,
+                  expired: true,
+                  errors: fieldErrors,
                 };
               });
             }
@@ -660,9 +641,6 @@ function createBaseForm(option = {}, mixins = []) {
         }
       },
 
-      componentDidUpdate(prevProps, prevState) {
-          console.log('here is componentDidUpdate')
-      },
       render() {
         const formProps = {
           [formPropName]: this.getForm(),
@@ -674,8 +652,7 @@ function createBaseForm(option = {}, mixins = []) {
           ...formProps,
           ...this.props,
         });
-        const result = <WrappedComponent {...props}/>
-        return result;
+        return <WrappedComponent {...props}/>;
       },
     });
 

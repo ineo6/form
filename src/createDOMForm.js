@@ -53,21 +53,18 @@ const mixin = {
   },
 
   validateFieldsAndScroll(ns, opt, cb) {
-    const { names, callback, options ={} } = getParams(ns, opt, cb);
-
+    const { names, callback, options = {} } = getParams(ns, opt, cb);
 
     // 此处添加默认值
-    if(!options.container) {
-        options.container = window
+    if (!options.container) {
+      options.container = window;
     }
 
-    if(!options.scroll) {
-
-        options.scroll = {
-            offsetTop: 16
-        }
+    if (!options.scroll) {
+      options.scroll = {
+        offsetTop: 16,
+      };
     }
-    // --
 
     const newCb = (error, values) => {
       if (error) {
